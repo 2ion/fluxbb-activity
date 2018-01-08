@@ -38,87 +38,144 @@ const DSCALE_OPTIONS = {
   }
 };
 
-var COUNTER_CHART= null;
+var COUNTER_CHART = null;
 var COUNTER_CHART_DATA = null;
 var FIRST_LOAD = true;
 var FLUXBB_URI = null;
 
-function counter_chart_init_buttons () {
-  document.querySelectorAll(".bl-counter").forEach((elem) => {
-    $(elem).click((e) => {
-      counter_chart_show(elem.getAttribute("id"));
-    });
-  });
-};
-
-function counter_chart_show(key) {
-  if(!COUNTER_CHART_DATA) {
-    fetch(`api/${API_VERSION}/history/counts/all`).then((resp) => {
-      if(resp.status==200) {
-        resp.json().then((payload) => {
-          COUNTER_CHART_DATA = payload;
-          counter_chart_show_key(key);
-        });
-      }
-    });
-    return;
+class CounterChart {
+  constructor(key, document) {
+    this.document = document
+    this.show(key);
   }
-  counter_chart_show_key(key);
-};
 
-function counter_chart_flatten_ts(ts, delta) {
-  let day = [];
-  let prev = null;
-  let ts2 = [];
+  show (key) {
+    if(this.data) {
+      let canvas = this.document.querySelector("#counter-chart");
 
-  let same = (x, y) => {
-    let xx = x.date;
-    let yy = y.date;
+      let ts = this.timeseries_flatten(this.timeseries(key));
+      let ts_delta = this.timeseries_to_delta(ts);
+      let spec = {
+        type: "line",
+        options: {
+          scales: {
+            yAxes: [
+              { id: 'abs', type: 'linear', position: 'left' },
+              { id: 'delta', type: 'linear', position: 'right' }
+            ]
+          }
+        },
+        data: {
+          labels: ts.map((v)=>{ return v[0]; }),
+          datasets:[
+            {
+              label: key,
+              yAxisID: 'abs',
+              data: ts.map((v)=>{ return v[1]; }),
+              hidden: true
+            },
+            {
+              label: `delta_${key}`,
+              yAxisID: 'delta',
+              borderColor: '#aa0000',
+              data: ts_delta.map((v) => { return v[1]; })
+            }
+          ]
+        }
+      };
 
-    if(xx.getFullYear() != yy.getFullYear() ||
-       xx.getMonth()    != yy.getMonth() ||
-       xx.getDate()     != yy.getDate())
-      return false;
+      if(this.chart) {
+        this.chart.destroy();
+        this.chart = null;
+      }
 
-    return true;
-  };
-
-  let label = (date) => {
-    let m = date.getMonth() + 1;
-    let d = date.getDate();
-    if (m<10) m = '0' + m;
-    if (d<10) d = '0' + d;
-    return `${date.getFullYear()}${m}${d}`;
-  };
-
-  let parse = (tsv) => {
-    return {
-      date: new Date(tsv[0] * 1000),
-      value: tsv[1]
-    };
-  };
-
-  ts.forEach((_) => {
-    let tsv = parse(_);
-
-    if(!prev || same(tsv, prev)) {
-      day.push(tsv.value);
-      prev = tsv;
+      this.chart = new Chart(canvas, spec);
+    } else {
+      fetch(`api/${API_VERSION}/history/counts/all`).then((resp) => {
+        if(resp.status == 200) {
+          resp.json().then((payload) => {
+            this.data = payload;
+            this.show(key);
+          });
+        }
+      });
       return;
     }
+  }
 
-    let daymax = day.reduce((u, v) => {
-      return Math.max(u, v);
+  function timeseries_flatten(ts, delta) {
+    let day = [];
+    let prev = null;
+    let ts2 = [];
+
+    let same = (x, y) => {
+      let xx = x.date;
+      let yy = y.date;
+
+      if(xx.getFullYear() != yy.getFullYear() ||
+         xx.getMonth()    != yy.getMonth() ||
+         xx.getDate()     != yy.getDate())
+        return false;
+
+      return true;
+    };
+
+    let label = (date) => {
+      let m = date.getMonth() + 1;
+      let d = date.getDate();
+      if (m<10) m = '0' + m;
+      if (d<10) d = '0' + d;
+      return `${date.getFullYear()}${m}${d}`;
+    };
+
+    let parse = (tsv) => {
+      return {
+        date: new Date(tsv[0] * 1000),
+        value: tsv[1]
+      };
+    };
+
+    ts.forEach((_) => {
+      let tsv = parse(_);
+
+      if(!prev || same(tsv, prev)) {
+        day.push(tsv.value);
+        prev = tsv;
+        return;
+      }
+
+      let daymax = day.reduce((u, v) => {
+        return Math.max(u, v);
+      });
+
+      ts2.push([ label(prev.date), daymax ]);
+
+      day = [ tsv.value ];
+      prev = tsv;
     });
 
-    ts2.push([ label(prev.date), daymax ]);
+    return ts2.slice(-128);
+  }
 
-    day = [ tsv.value ];
-    prev = tsv;
-  });
+  bind_buttons () {
+    document.querySelectorAll(".bl-counter").forEach((elem) => {
+      $(elem).click((e) => {
+        counter_chart_show(elem.getAttribute("id"));
+      });
+    });
+  }
 
-  return ts2.slice(-128);
-};
+  set data(val) {
+    this.data = val;
+  }
+
+  get data() {
+    return this.data || null;
+  }
+
+  data: null;
+}
+
 
 /* Transform keyed time series into a delta series */
 function counter_chart_todelta(ts) {
@@ -152,41 +209,6 @@ function counter_chart_ts(key) {
 };
 
 function counter_chart_show_key(key) {
-  let canvas = document.querySelector("#counter-chart");
-  let ts = counter_chart_ts(key);
-  ts = counter_chart_flatten_ts(ts);
-  ts_delta = counter_chart_todelta(ts);
-  let spec = {
-    type: "line",
-    options: {
-      scales: {
-        yAxes: [
-          { id: 'abs', type: 'linear', position: 'left' },
-          { id: 'delta', type: 'linear', position: 'right' }
-        ]
-      }
-    },
-    data: {
-      labels: ts.map((v)=>{ return v[0]; }),
-      datasets:[
-        {
-          label: key,
-          yAxisID: 'abs',
-          data: ts.map((v)=>{ return v[1]; }),
-          hidden: true
-        },
-        {
-          label: `delta_${key}`,
-          yAxisID: 'delta',
-          borderColor: '#aa0000',
-          data: ts_delta.map((v) => { return v[1]; })
-        }
-      ]
-    }
-  };
-  if(COUNTER_CHART)  COUNTER_CHART.destroy();
-  COUNTER_CHART = null;
-  COUNTER_CHART = new Chart(canvas, spec);
 };
  
 function fetch_data() {
