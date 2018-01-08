@@ -39,7 +39,6 @@ const DSCALE_OPTIONS = {
 };
 
 var COUNTER_CHART= null;
-var COUNTER_CHART_COUNTER = null;
 var COUNTER_CHART_DATA = null;
 var FIRST_LOAD = true;
 var FLUXBB_URI = null;
@@ -53,7 +52,6 @@ function counter_chart_init_buttons () {
 };
 
 function counter_chart_show(key) {
-  COUNTER_CHART_COUNTER = key || COUNTER_CHART_COUNTER;
   if(!COUNTER_CHART_DATA) {
     fetch(`api/${API_VERSION}/history/counts/all`).then((resp) => {
       if(resp.status==200) {
